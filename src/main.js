@@ -62,7 +62,11 @@ const sky = new THREE.Mesh(
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    uniforms: { sunDir: { value: SUN_DIR } },
+    uniforms: {
+      sunDir: { value: SUN_DIR },
+      phobosDir: { value: new THREE.Vector3(0.45, 0.27, -0.85).normalize() },
+      deimosDir: { value: new THREE.Vector3(0.14, 0.36, -0.92).normalize() },
+    },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
       void main() {
@@ -71,8 +75,38 @@ const sky = new THREE.Mesh(
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 sunDir;
+      uniform vec3 sunDir, phobosDir, deimosDir;
       varying vec3 vDir;
+
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vnoise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x),
+                   mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+      }
+
+      // Luna lejana: disco con fase (iluminado por el sol) y manchas,
+      // cuya luz se SUMA al cielo -> se ve "a través" de la atmósfera polvorienta.
+      vec3 moon(vec3 col, vec3 dir, vec3 md, float rad, vec2 squash, float seed, float strength) {
+        float fwd = dot(dir, md);
+        if (fwd <= 0.0) return col;
+        vec3 right = normalize(cross(md, vec3(0.0, 1.0, 0.0)));
+        vec3 up = cross(right, md);
+        vec2 uv = vec2(dot(dir, right), dot(dir, up)) / (rad * fwd) / squash;
+        float r = length(uv);
+        float mask = 1.0 - smoothstep(0.9, 1.0, r);
+        if (mask <= 0.0) return col;
+        float z = sqrt(max(1.0 - r * r, 0.0));
+        vec3 n = normalize(right * uv.x + up * uv.y - md * z);
+        float lit = smoothstep(-0.1, 0.45, dot(n, sunDir));
+        float tex = 0.78 + 0.22 * vnoise(uv * 3.0 + seed)
+                  - 0.18 * smoothstep(0.55, 0.8, vnoise(uv * 7.0 + seed * 2.0)); // cráteres
+        vec3 moonCol = vec3(0.98, 0.9, 0.82) * tex;
+        col *= 1.0 - 0.06 * mask;                       // el lado oscuro apenas tapa el cielo
+        return col + moonCol * (lit + 0.06) * mask * strength;
+      }
+
       void main() {
         vec3 dir = normalize(vDir);
         float h = dir.y;
@@ -86,6 +120,8 @@ const sky = new THREE.Mesh(
         col += vec3(1.0, 0.72, 0.42) * pow(d, 6.0) * 0.35;   // halo amplio
         col += vec3(1.0, 0.86, 0.62) * pow(d, 90.0) * 0.8;   // corona
         col += vec3(1.0, 0.96, 0.88) * smoothstep(0.99975, 0.99988, d) * 4.0; // disco (Marte: sol más pequeño)
+        col = moon(col, dir, phobosDir, 0.03, vec2(1.25, 1.0), 3.0, 0.55);  // Fobos (más grande, alargado)
+        col = moon(col, dir, deimosDir, 0.012, vec2(1.0, 1.0), 11.0, 0.45); // Deimos (pequeño)
         col = pow(col, vec3(2.2)); // sRGB -> lineal
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
@@ -185,31 +221,7 @@ function makeRockGeometry(s) {
   }
 }
 
-// ---------- Lunas: Fobos y Deimos ----------
-function makeMoon(radius, stretch, seedOffset, dir, distance) {
-  const g = new THREE.IcosahedronGeometry(radius, 5);
-  const p = g.attributes.position, v = new THREE.Vector3();
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i).normalize();
-    const n = noise.noise3d(v.x * 2 + seedOffset, v.y * 2, v.z * 2) * 0.14
-            + noise.noise3d(v.x * 6 + seedOffset, v.y * 6, v.z * 6) * 0.06
-            - Math.abs(noise.noise3d(v.x * 9 + seedOffset, v.y * 9, v.z * 9)) * 0.05; // cráteres
-    v.multiplyScalar(radius * (1 + n));
-    v.x *= stretch;
-    p.setXYZ(i, v.x, v.y, v.z);
-  }
-  g.computeVertexNormals();
-  const moon = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
-    color: 0xcdb3a0, roughness: 1, fog: false, flatShading: true,
-    emissive: 0x8a6550, emissiveIntensity: 0.35, // pálidas, como vistas a través del polvo
-  }));
-  moon.position.copy(dir.normalize()).multiplyScalar(distance);
-  moon.rotation.set(rand() * 3, rand() * 3, rand() * 3);
-  scene.add(moon);
-  return moon;
-}
-const phobos = makeMoon(38, 1.35, 5, new THREE.Vector3(0.45, 0.27, -0.85), 1100);
-const deimos = makeMoon(15, 1.15, 50, new THREE.Vector3(0.14, 0.36, -0.92), 1300);
+// Fobos y Deimos se dibujan dentro del shader del cielo (ver función moon()).
 
 // Cámara por encima del relieve, mirando hacia el sol y las dunas.
 camera.position.y = terrainHeight(camera.position.x, camera.position.z) + 9;
@@ -252,8 +264,6 @@ renderer.setAnimationLoop(() => {
   p.needsUpdate = true;
   dust.position.set(camera.position.x, 0, camera.position.z);
 
-  phobos.rotation.y += dt * 0.02;
-  deimos.rotation.y += dt * 0.01;
   sky.position.copy(camera.position);
 
   controls.update();

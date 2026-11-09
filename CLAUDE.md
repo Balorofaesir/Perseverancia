@@ -12,11 +12,12 @@ Una aplicación web interactiva que muestra una réplica 3D simplificada del rov
 - Iluminación tipo Marte (luz solar tenue y sombras).
 - Controles: mover y girar el rover con el teclado, y cámara orbital con el ratón.
 
-**Tecnología (decisión tomada):** HTML + JavaScript con **Three.js** (sin instalación ni build; se abre en el navegador).
+**Tecnología:** **Vite + Three.js** (JavaScript, módulos ES).
 
-**Estructura prevista:**
-- `index.html` — página y carga de Three.js
-- `main.js` — escena, rover, terreno y controles
+**Estructura:**
+- `index.html` — página
+- `src/main.js` — escena, terreno, cielo, luces, lunas (y luego el rover y los controles)
+- `scripts/check.mjs` — revisión automática con Playwright
 
 **Fuera de alcance (por el tiempo):** física realista, modelos descargados externos, sonido, multijugador.
 
@@ -39,3 +40,12 @@ Una aplicación web interactiva que muestra una réplica 3D simplificada del rov
 - **2026-11-09** — Se crea `CLAUDE.md` con el objetivo y el plan. Carpeta del proyecto vacía.
 - **2026-11-09** — Se añade la descripción del proyecto y se decide usar Three.js (HTML + JS, sin build).
 - **2026-11-09** — Se instala GitHub CLI (`gh` 2.103.3) y se inicia sesión con la cuenta **Balorofaesir** (HTTPS).
+- **2026-11-09** — Se crea el repo público https://github.com/Balorofaesir/Perseverancia y se sube `CLAUDE.md`.
+- **2026-11-09** — **Pedido 1: paisaje de Marte.** Proyecto con **Vite + Three.js** (cambia la decisión inicial "sin build"). `npm run dev` → http://localhost:5173.
+  - Escena en `src/main.js`: dunas asimétricas procedurales, ~720 rocas instanciadas, cielo con shader (caramelo → rosado), sol de tarde con luz cálida y sombras suaves, Fobos y Deimos, polvo en suspensión, tone mapping ACES.
+  - `npm run check` (`scripts/check.mjs`): Playwright (`playwright-core`, usa el Chrome instalado, headless) → captura en `screenshots/check.png` + lista de errores de consola. Requiere `npm run dev` en marcha.
+  - 3 rondas de revisión: R1 404 de favicon, lunas pequeñas y oscuras, cámara tapada por una loma, montañas muy puntiagudas → corregido. R2 lunas muy blancas, sol grande → corregido. R3 sin errores, captura OK.
+
+## Comandos
+- `npm run dev` — servidor de desarrollo (http://localhost:5173)
+- `npm run check` — revisión headless: captura + errores de consola (con el servidor encendido)
